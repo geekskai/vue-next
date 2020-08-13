@@ -1,6 +1,6 @@
 import {
   CompilerOptions,
-  parse,
+  baseParse as parse,
   transform,
   ElementNode,
   NodeTypes,
@@ -216,12 +216,16 @@ describe('compiler: transform <slot> outlets', () => {
         `$slots`,
         `"default"`,
         `{}`,
-        [
-          {
-            type: NodeTypes.ELEMENT,
-            tag: `div`
-          }
-        ]
+        {
+          type: NodeTypes.JS_FUNCTION_EXPRESSION,
+          params: [],
+          returns: [
+            {
+              type: NodeTypes.ELEMENT,
+              tag: `div`
+            }
+          ]
+        }
       ]
     })
   })
@@ -235,12 +239,16 @@ describe('compiler: transform <slot> outlets', () => {
         `$slots`,
         `"foo"`,
         `{}`,
-        [
-          {
-            type: NodeTypes.ELEMENT,
-            tag: `div`
-          }
-        ]
+        {
+          type: NodeTypes.JS_FUNCTION_EXPRESSION,
+          params: [],
+          returns: [
+            {
+              type: NodeTypes.ELEMENT,
+              tag: `div`
+            }
+          ]
+        }
       ]
     })
   })
@@ -268,12 +276,16 @@ describe('compiler: transform <slot> outlets', () => {
             }
           ]
         },
-        [
-          {
-            type: NodeTypes.ELEMENT,
-            tag: `div`
-          }
-        ]
+        {
+          type: NodeTypes.JS_FUNCTION_EXPRESSION,
+          params: [],
+          returns: [
+            {
+              type: NodeTypes.ELEMENT,
+              tag: `div`
+            }
+          ]
+        }
       ]
     })
   })
@@ -301,12 +313,16 @@ describe('compiler: transform <slot> outlets', () => {
             }
           ]
         },
-        [
-          {
-            type: NodeTypes.ELEMENT,
-            tag: `div`
-          }
-        ]
+        {
+          type: NodeTypes.JS_FUNCTION_EXPRESSION,
+          params: [],
+          returns: [
+            {
+              type: NodeTypes.ELEMENT,
+              tag: `div`
+            }
+          ]
+        }
       ]
     })
   })
@@ -317,7 +333,7 @@ describe('compiler: transform <slot> outlets', () => {
     parseWithSlots(source, { onError })
     const index = source.indexOf('v-foo')
     expect(onError.mock.calls[0][0]).toMatchObject({
-      code: ErrorCodes.X_UNEXPECTED_DIRECTIVE_ON_SLOT_OUTLET,
+      code: ErrorCodes.X_V_SLOT_UNEXPECTED_DIRECTIVE_ON_SLOT_OUTLET,
       loc: {
         source: `v-foo`,
         start: {

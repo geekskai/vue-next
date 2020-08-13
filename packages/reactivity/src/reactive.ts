@@ -1,86 +1,128 @@
-import { isObject, toTypeString } from '@vue/shared'
-import { mutableHandlers, readonlyHandlers } from './baseHandlers'
-
+import { isObject, toRawType, def, hasOwn, makeMap } from '@vue/shared'
+import {
+  mutableHandlers,
+  readonlyHandlers,
+  shallowReactiveHandlers,
+  shallowReadonlyHandlers
+} from './baseHandlers'
 import {
   mutableCollectionHandlers,
-  readonlyCollectionHandlers
+  readonlyCollectionHandlers,
+  shallowCollectionHandlers
 } from './collectionHandlers'
+import { UnwrapRef, Ref } from './ref'
 
-import { UnwrapNestedRefs } from './ref'
-import { ReactiveEffect } from './effect'
+export const enum ReactiveFlags {
+  SKIP = '__v_skip',
+  IS_REACTIVE = '__v_isReactive',
+  IS_READONLY = '__v_isReadonly',
+  RAW = '__v_raw',
+  REACTIVE = '__v_reactive',
+  READONLY = '__v_readonly'
+}
 
-// The main WeakMap that stores {target -> key -> dep} connections.
-// Conceptually, it's easier to think of a dependency as a Dep class
-// which maintains a Set of subscribers, but we simply store them as
-// raw Sets to reduce memory overhead.
-export type Dep = Set<ReactiveEffect>
-export type KeyToDepMap = Map<string | symbol, Dep>
-export const targetMap: WeakMap<any, KeyToDepMap> = new WeakMap()
+interface Target {
+  [ReactiveFlags.SKIP]?: boolean
+  [ReactiveFlags.IS_REACTIVE]?: boolean
+  [ReactiveFlags.IS_READONLY]?: boolean
+  [ReactiveFlags.RAW]?: any
+  [ReactiveFlags.REACTIVE]?: any
+  [ReactiveFlags.READONLY]?: any
+}
 
-// WeakMaps that store {raw <-> observed} pairs.
-const rawToReactive: WeakMap<any, any> = new WeakMap()
-const reactiveToRaw: WeakMap<any, any> = new WeakMap()
-const rawToReadonly: WeakMap<any, any> = new WeakMap()
-const readonlyToRaw: WeakMap<any, any> = new WeakMap()
+const collectionTypes = new Set<Function>([Set, Map, WeakMap, WeakSet])
+const isObservableType = /*#__PURE__*/ makeMap(
+  'Object,Array,Map,Set,WeakMap,WeakSet'
+)
 
-// WeakSets for values that are marked readonly or non-reactive during
-// observable creation.
-const readonlyValues: WeakSet<any> = new WeakSet()
-const nonReactiveValues: WeakSet<any> = new WeakSet()
-
-const collectionTypes: Set<any> = new Set([Set, Map, WeakMap, WeakSet])
-const observableValueRE = /^\[object (?:Object|Array|Map|Set|WeakMap|WeakSet)\]$/
-
-const canObserve = (value: any): boolean => {
+const canObserve = (value: Target): boolean => {
   return (
-    !value._isVue &&
-    !value._isVNode &&
-    observableValueRE.test(toTypeString(value)) &&
-    !nonReactiveValues.has(value)
+    !value[ReactiveFlags.SKIP] &&
+    isObservableType(toRawType(value)) &&
+    Object.isExtensible(value)
   )
 }
+
+// only unwrap nested ref
+type UnwrapNestedRefs<T> = T extends Ref ? T : UnwrapRef<T>
 
 export function reactive<T extends object>(target: T): UnwrapNestedRefs<T>
 export function reactive(target: object) {
   // if trying to observe a readonly proxy, return the readonly version.
-  if (readonlyToRaw.has(target)) {
+  if (target && (target as Target)[ReactiveFlags.IS_READONLY]) {
     return target
-  }
-  // target is explicitly marked as readonly by user
-  if (readonlyValues.has(target)) {
-    return readonly(target)
   }
   return createReactiveObject(
     target,
-    rawToReactive,
-    reactiveToRaw,
+    false,
     mutableHandlers,
     mutableCollectionHandlers
   )
 }
 
-export function readonly<T extends object>(
-  target: T
-): Readonly<UnwrapNestedRefs<T>>
-export function readonly(target: object) {
-  // value is a mutable observable, retrieve its original and return
-  // a readonly version.
-  if (reactiveToRaw.has(target)) {
-    target = reactiveToRaw.get(target)
-  }
+// Return a reactive-copy of the original object, where only the root level
+// properties are reactive, and does NOT unwrap refs nor recursively convert
+// returned properties.
+export function shallowReactive<T extends object>(target: T): T {
   return createReactiveObject(
     target,
-    rawToReadonly,
-    readonlyToRaw,
+    false,
+    shallowReactiveHandlers,
+    shallowCollectionHandlers
+  )
+}
+
+type Primitive = string | number | boolean | bigint | symbol | undefined | null
+type Builtin = Primitive | Function | Date | Error | RegExp
+export type DeepReadonly<T> = T extends Builtin
+  ? T
+  : T extends Map<infer K, infer V>
+    ? ReadonlyMap<DeepReadonly<K>, DeepReadonly<V>>
+    : T extends ReadonlyMap<infer K, infer V>
+      ? ReadonlyMap<DeepReadonly<K>, DeepReadonly<V>>
+      : T extends WeakMap<infer K, infer V>
+        ? WeakMap<DeepReadonly<K>, DeepReadonly<V>>
+        : T extends Set<infer U>
+          ? ReadonlySet<DeepReadonly<U>>
+          : T extends ReadonlySet<infer U>
+            ? ReadonlySet<DeepReadonly<U>>
+            : T extends WeakSet<infer U>
+              ? WeakSet<DeepReadonly<U>>
+              : T extends Promise<infer U>
+                ? Promise<DeepReadonly<U>>
+                : T extends {}
+                  ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+                  : Readonly<T>
+
+export function readonly<T extends object>(
+  target: T
+): DeepReadonly<UnwrapNestedRefs<T>> {
+  return createReactiveObject(
+    target,
+    true,
     readonlyHandlers,
     readonlyCollectionHandlers
   )
 }
 
+// Return a reactive-copy of the original object, where only the root level
+// properties are readonly, and does NOT unwrap refs nor recursively convert
+// returned properties.
+// This is used for creating the props proxy object for stateful components.
+export function shallowReadonly<T extends object>(
+  target: T
+): Readonly<{ [K in keyof T]: UnwrapNestedRefs<T[K]> }> {
+  return createReactiveObject(
+    target,
+    true,
+    shallowReadonlyHandlers,
+    readonlyCollectionHandlers
+  )
+}
+
 function createReactiveObject(
-  target: any,
-  toProxy: WeakMap<any, any>,
-  toRaw: WeakMap<any, any>,
+  target: Target,
+  isReadonly: boolean,
   baseHandlers: ProxyHandler<any>,
   collectionHandlers: ProxyHandler<any>
 ) {
@@ -90,49 +132,55 @@ function createReactiveObject(
     }
     return target
   }
-  // target already has corresponding Proxy
-  let observed = toProxy.get(target)
-  if (observed !== void 0) {
-    return observed
-  }
-  // target is already a Proxy
-  if (toRaw.has(target)) {
+  // target is already a Proxy, return it.
+  // exception: calling readonly() on a reactive object
+  if (
+    target[ReactiveFlags.RAW] &&
+    !(isReadonly && target[ReactiveFlags.IS_REACTIVE])
+  ) {
     return target
+  }
+  // target already has corresponding Proxy
+  const reactiveFlag = isReadonly
+    ? ReactiveFlags.READONLY
+    : ReactiveFlags.REACTIVE
+  if (hasOwn(target, reactiveFlag)) {
+    return target[reactiveFlag]
   }
   // only a whitelist of value types can be observed.
   if (!canObserve(target)) {
     return target
   }
-  const handlers = collectionTypes.has(target.constructor)
-    ? collectionHandlers
-    : baseHandlers
-  observed = new Proxy(target, handlers)
-  toProxy.set(target, observed)
-  toRaw.set(observed, target)
-  if (!targetMap.has(target)) {
-    targetMap.set(target, new Map())
-  }
+  const observed = new Proxy(
+    target,
+    collectionTypes.has(target.constructor) ? collectionHandlers : baseHandlers
+  )
+  def(target, reactiveFlag, observed)
   return observed
 }
 
-export function isReactive(value: any): boolean {
-  return reactiveToRaw.has(value) || readonlyToRaw.has(value)
+export function isReactive(value: unknown): boolean {
+  if (isReadonly(value)) {
+    return isReactive((value as Target)[ReactiveFlags.RAW])
+  }
+  return !!(value && (value as Target)[ReactiveFlags.IS_REACTIVE])
 }
 
-export function isReadonly(value: any): boolean {
-  return readonlyToRaw.has(value)
+export function isReadonly(value: unknown): boolean {
+  return !!(value && (value as Target)[ReactiveFlags.IS_READONLY])
+}
+
+export function isProxy(value: unknown): boolean {
+  return isReactive(value) || isReadonly(value)
 }
 
 export function toRaw<T>(observed: T): T {
-  return reactiveToRaw.get(observed) || readonlyToRaw.get(observed) || observed
+  return (
+    (observed && toRaw((observed as Target)[ReactiveFlags.RAW])) || observed
+  )
 }
 
-export function markReadonly<T>(value: T): T {
-  readonlyValues.add(value)
-  return value
-}
-
-export function markNonReactive<T>(value: T): T {
-  nonReactiveValues.add(value)
+export function markRaw<T extends object>(value: T): T {
+  def(value, ReactiveFlags.SKIP, true)
   return value
 }
