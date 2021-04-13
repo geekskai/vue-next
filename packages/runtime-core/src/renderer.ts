@@ -848,7 +848,11 @@ function baseCreateRenderer(
     }
     if (parentComponent) {
       let subTree = parentComponent.subTree
-      if (__DEV__ && subTree.patchFlag & PatchFlags.DEV_ROOT_FRAGMENT) {
+      if (
+        __DEV__ &&
+        subTree.patchFlag > 0 &&
+        subTree.patchFlag & PatchFlags.DEV_ROOT_FRAGMENT
+      ) {
         subTree =
           filterSingleRoot(subTree.children as VNodeArrayChildren) || subTree
       }
@@ -1572,7 +1576,7 @@ function baseCreateRenderer(
     instance.vnode = nextVNode
     instance.next = null
     updateProps(instance, nextVNode.props, prevProps, optimized)
-    updateSlots(instance, nextVNode.children)
+    updateSlots(instance, nextVNode.children, optimized)
 
     pauseTracking()
     // props update may have triggered pre-flush watchers.
