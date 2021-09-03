@@ -1,5 +1,10 @@
 import { store, File } from './store'
-import { SFCDescriptor, BindingMetadata } from '@vue/compiler-sfc'
+import {
+  SFCDescriptor,
+  BindingMetadata,
+  shouldTransformRef,
+  transformRef
+} from '@vue/compiler-sfc'
 import * as defaultCompiler from '@vue/compiler-sfc'
 import { ref } from 'vue'
 
@@ -36,6 +41,12 @@ export function resetVersion() {
   vueRuntimeUrl.value = defaultVueUrl
 }
 
+async function transformTS(src: string) {
+  return (await import('sucrase')).transform(src, {
+    transforms: ['typescript']
+  }).code
+}
+
 export async function compileFile({ filename, code, compiled }: File) {
   if (!code.trim()) {
     store.errors = []
@@ -43,6 +54,14 @@ export async function compileFile({ filename, code, compiled }: File) {
   }
 
   if (!filename.endsWith('.vue')) {
+    if (shouldTransformRef(code)) {
+      code = transformRef(code, { filename }).code
+    }
+
+    if (filename.endsWith('.ts')) {
+      code = await transformTS(code)
+    }
+
     compiled.js = compiled.ssr = code
     store.errors = []
     return
@@ -59,14 +78,21 @@ export async function compileFile({ filename, code, compiled }: File) {
   }
 
   if (
-    (descriptor.script && descriptor.script.lang) ||
-    (descriptor.scriptSetup && descriptor.scriptSetup.lang) ||
     descriptor.styles.some(s => s.lang) ||
     (descriptor.template && descriptor.template.lang)
   ) {
     store.errors = [
-      'lang="x" pre-processors are not supported in the in-browser playground.'
+      `lang="x" pre-processors for <template> or <style> are currently not ` +
+        `supported.`
     ]
+    return
+  }
+
+  const scriptLang =
+    (descriptor.script && descriptor.script.lang) ||
+    (descriptor.scriptSetup && descriptor.scriptSetup.lang)
+  if (scriptLang && scriptLang !== 'ts') {
+    store.errors = [`Only lang="ts" is supported for <script> blocks.`]
     return
   }
 
@@ -79,7 +105,7 @@ export async function compileFile({ filename, code, compiled }: File) {
     ssrCode += code
   }
 
-  const clientScriptResult = doCompileScript(descriptor, id, false)
+  const clientScriptResult = await doCompileScript(descriptor, id, false)
   if (!clientScriptResult) {
     return
   }
@@ -89,11 +115,12 @@ export async function compileFile({ filename, code, compiled }: File) {
   // script ssr only needs to be performed if using <script setup> where
   // the render fn is inlined.
   if (descriptor.scriptSetup) {
-    const ssrScriptResult = doCompileScript(descriptor, id, true)
-    if (!ssrScriptResult) {
-      return
+    const ssrScriptResult = await doCompileScript(descriptor, id, true)
+    if (ssrScriptResult) {
+      ssrCode += ssrScriptResult[0]
+    } else {
+      ssrCode = `/* SSR compile error: ${store.errors[0]} */`
     }
-    ssrCode += ssrScriptResult[0]
   } else {
     // when no <script setup> is used, the script result will be identical.
     ssrCode += clientScript
@@ -114,10 +141,12 @@ export async function compileFile({ filename, code, compiled }: File) {
     clientCode += clientTemplateResult
 
     const ssrTemplateResult = doCompileTemplate(descriptor, id, bindings, true)
-    if (!ssrTemplateResult) {
-      return
+    if (ssrTemplateResult) {
+      // ssr compile failure is fine
+      ssrCode += ssrTemplateResult
+    } else {
+      ssrCode = `/* SSR compile error: ${store.errors[0]} */`
     }
-    ssrCode += ssrTemplateResult
   }
 
   if (hasScoped) {
@@ -171,16 +200,16 @@ export async function compileFile({ filename, code, compiled }: File) {
   store.errors = []
 }
 
-function doCompileScript(
+async function doCompileScript(
   descriptor: SFCDescriptor,
   id: string,
   ssr: boolean
-): [string, BindingMetadata | undefined] | undefined {
+): Promise<[string, BindingMetadata | undefined] | undefined> {
   if (descriptor.script || descriptor.scriptSetup) {
     try {
       const compiledScript = SFCCompiler.compileScript(descriptor, {
         id,
-        refSugar: true,
+        refTransform: true,
         inlineTemplate: true,
         templateOptions: {
           ssr,
@@ -198,9 +227,14 @@ function doCompileScript(
       code +=
         `\n` +
         SFCCompiler.rewriteDefault(compiledScript.content, COMP_IDENTIFIER)
+
+      if ((descriptor.script || descriptor.scriptSetup)!.lang === 'ts') {
+        code = await transformTS(code)
+      }
+
       return [code, compiledScript.bindings]
-    } catch (e) {
-      store.errors = [e]
+    } catch (e: any) {
+      store.errors = [e.stack.split('\n').slice(0, 12).join('\n')]
       return
     }
   } else {

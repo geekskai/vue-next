@@ -1,14 +1,18 @@
 import { reactive, watchEffect } from 'vue'
-import { compileFile, MAIN_FILE } from './sfcCompiler'
+import { compileFile, MAIN_FILE } from './transform'
+import { utoa, atou } from './utils'
 
 const welcomeCode = `
+<script setup>
+import { ref } from 'vue'
+
+const msg = ref('Hello World!')
+</script>
+
 <template>
   <h1>{{ msg }}</h1>
+  <input v-model="msg">
 </template>
-
-<script setup>
-const msg = 'Hello World!'
-</script>
 `.trim()
 
 export class File {
@@ -38,7 +42,7 @@ let files: Store['files'] = {}
 
 const savedFiles = location.hash.slice(1)
 if (savedFiles) {
-  const saved = JSON.parse(atob(savedFiles))
+  const saved = JSON.parse(atou(savedFiles))
   for (const filename in saved) {
     files[filename] = new File(filename, saved[filename])
   }
@@ -70,7 +74,7 @@ for (const file in store.files) {
 }
 
 watchEffect(() => {
-  history.replaceState({}, '', '#' + btoa(JSON.stringify(exportFiles())))
+  history.replaceState({}, '', '#' + utoa(JSON.stringify(exportFiles())))
 })
 
 export function exportFiles() {
