@@ -1643,9 +1643,9 @@ co@^4.6.0:
   integrity sha1-bqa989hTrlTMuOR7+gvz+QMfsYQ=
 
 codemirror@^5.60.0:
-  version "5.62.3"
-  resolved "https://registry.yarnpkg.com/codemirror/-/codemirror-5.62.3.tgz#5cfdee6931c8b2d1b39ae773aaaaec2cc6b5558e"
-  integrity sha512-zZAyOfN8TU67ngqrxhOgtkSAGV9jSpN1snbl8elPtnh9Z5A11daR405+dhLzLnuXrwX0WCShWlybxPN3QC/9Pg==
+  version "5.65.10"
+  resolved "https://registry.yarnpkg.com/codemirror/-/codemirror-5.65.10.tgz#4276a93b8534ce91f14b733ba9a1ac949666eac9"
+  integrity sha512-IXAG5wlhbgcTJ6rZZcmi4+sjWIbJqIGfeg3tNa3yX84Jb3T4huS5qzQAo/cUisc1l3bI47WZodpyf7cYcocDKg==
 
 collect-v8-coverage@^1.0.0:
   version "1.0.1"
